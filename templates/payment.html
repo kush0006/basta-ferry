@@ -1,0 +1,143 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block extra_head %}
+    <script src="https://js.stripe.com/v3/"></script>
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+{% endblock %}
+
+{% block content %}
+  <div class="payment-container">
+    <h2>Enter Card Details</h2>
+
+    <!-- Stripe Payment Form -->
+    <form method="post" id="payment-form">
+      {% csrf_token %}
+      <div id="card-element" class="stripe-input"></div>
+      <button type="submit" class="submit-button">Submit Payment (Stripe)</button>
+    </form>
+
+    <!-- Razorpay Payment Button -->
+    <div style="margin-top: 20px;">
+      <button id="razorpayBtn" class="submit-button" style="background-color: #F37254;">
+        Pay with Razorpay
+      </button>
+    </div>
+  </div>
+
+  <!-- Stripe & Razorpay Scripts -->
+  <script>
+    // Stripe
+    const stripe = Stripe("{{ stripe_public_key }}");
+    const elements = stripe.elements();
+    const cardElement = elements.create('card');
+    cardElement.mount('#card-element');
+
+    const form = document.getElementById('payment-form');
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+
+      const { paymentMethod, error } = await stripe.createPaymentMethod({
+        type: 'card',
+        card: cardElement,
+      });
+
+      if (error) {
+        alert(error.message);
+      } else {
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+        const response = await fetch("{% url 'stripe_charge' %}", {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+          },
+          body: JSON.stringify({
+            payment_method_id: paymentMethod.id
+          })
+        });
+
+        const result = await response.json();
+        if (result.success) {
+          window.location.href = "{% url 'payment-success' %}";
+        } else {
+          alert("Stripe payment failed.");
+        }
+      }
+    });
+
+    // Razorpay
+    document.getElementById('razorpayBtn').onclick = function (e) {
+      e.preventDefault();
+
+      var options = {
+        "key": "{{ razorpay_key_id }}",
+        "amount": "{{ razorpay_amount }}", // in paise (e.g., 50000 = ₹500)
+        "currency": "INR",
+        "name": "{{ user.get_full_name|default:'Your Name' }}",
+        "description": "Order Payment",
+        "handler": function (response) {
+          fetch("{% url 'razorpay_confirm' %}", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-CSRFToken": "{{ csrf_token }}"
+            },
+            body: JSON.stringify({
+              payment_id: response.razorpay_payment_id
+            })
+          })
+          .then(res => res.json())
+          .then(data => {
+            if (data.status === "success") {
+              alert("Razorpay Payment Successful");
+              window.location.href = "{% url 'payment-success' %}";
+            } else {
+              alert("Razorpay Payment Failed");
+            }
+          });
+        },
+        "theme": {
+          "color": "#F37254"
+        }
+      };
+
+      var rzp = new Razorpay(options);
+      rzp.open();
+    };
+  </script>
+
+  <!-- Optional styling -->
+  <style>
+    .payment-container {
+      max-width: 400px;
+      margin: auto;
+      padding: 30px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      background-color: #fff;
+    }
+
+    .stripe-input {
+      padding: 10px;
+      margin-bottom: 20px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+
+    .submit-button {
+      background-color: #6772E5;
+      color: #fff;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 4px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+
+    .submit-button:hover {
+      background-color: #5469d4;
+    }
+  </style>
+{% endblock %}
